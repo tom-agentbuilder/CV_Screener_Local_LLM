@@ -1,122 +1,90 @@
------
+# AI CV Screener (Local LLM - Qwen 3.5)
 
-# Smart CV Screener: An AI Recruitment Assistant for Asset Management Firms
+## Overview
 
-## Project Overview
+This project is an automated CV screening pipeline designed for **high-volume, low-stakes recruitment**.
 
-This project is a prototype of an intelligent CV screener built using the CrewAI framework, designed to simulate and automate the talent screening process for asset management firms (especially on the buy-side). Facing a high volume of resumes and highly specialized job requirements, traditional manual screening can be inefficient and prone to missing critical details. This system leverages a team of collaborative AI agents to:
+It processes candidate resumes from ATS-generated emails and uses a **local LLM (Qwen 3.5)** to evaluate candidates.
 
-1.  **Precisely identify** professional skills within resumes.
-2.  **Evaluate** candidate fit against company culture and job descriptions.
-3.  **Deeply analyze** how candidates can fill existing team skill gaps and align with specific hiring manager preferences.
-4.  **Synthesize findings** and provide a final hiring recommendation.
+---
 
------
+## Key Features
 
-## Why I Built This Project (From a Talent Acquisition Manager's Perspective)
+- 📩 Email ingestion (via IMAP)
+- 🔗 Auto-download CVs from ATS links (Moka)
+- 📂 Batch processing of CV files
+- 🤖 Local LLM screening (Qwen 3.5 via Ollama)
+- 📊 Structured candidate evaluation
+- 🚨 Telegram alerts for shortlisted candidates
 
-As a Talent Acquisition Manager, I know that an efficient, accurate, and deeply business-aware screening process is paramount. In the asset management industry, job roles are highly specialized, and team synergy and complementary skillsets are often key to successful hiring. Recognizing the immense potential of AI in this domain
+---
 
-The core goals of this project were to:
+## Why This Exists
 
-  * Learn and master the CrewAI framework, understanding how multi-agent systems operate.
-  * Combine my **TA logical thinking** with AI technology, specifically focusing on deeply considering **hiring manager preferences, existing team structure, and skill gaps** – aspects that traditional screening tools often overlook.
-  * Demonstrate my capability to apply forward-thinking technology to solve real-world recruitment challenges.
+Traditional ATS systems:
+- Lack intelligent filtering
+- Require manual CV review
+- Are inefficient for high-volume hiring
 
------
+This tool:
+- Automates first-round screening
+- Prioritizes speed over perfection
+- Designed for roles like:
+  - Admin
+  - Customer Service
+  - Junior HR
+  - Low-risk hires
 
-## Core Design Philosophy & My Logical Approach
+---
 
-When designing this system, I paid special attention to the following points to ensure it genuinely addresses common recruitment pain points:
+## Tech Stack
 
-1.  **Integrating Domain-Specific Expertise (My thought: AI needs to speak "finance")**
+- Python
+- PyMuPDF (PDF parsing)
+- Ollama (Local LLM)
+- Qwen 3.5
+- IMAP (Email ingestion)
+- Telegram Bot API
 
-      * **Pain Point:** Generic LLMs lack nuanced understanding of finance-specific terminology and relationships.
-      * **My Solution:** I manually constructed a **`BuysideAssetManagementSkillGraph` (Buy-side Asset Management Skill Graph)**. Think of this as me writing a detailed **Financial Industry Skill Encyclopedia** for the AI. It includes:
-          * Standardized skill names (e.g., Investment Research & Analysis).
-          * Common aliases (e.g., equity research, credit research).
-          * Sub-skills and associated tools (e.g., Fundamental Analysis, Python, DCF valuation models).
-          * Even heuristic rules to infer skill proficiency (e.g., judging "advanced/lead" based on verbs like "developed" or "led").
-      * **The Link:** This skill graph is the crystallization of my personal domain knowledge, embedded directly into the code as the "source of truth" for the AI's judgments.
+---
 
-2.  **Empowering AI Agents with Specialized Tools (My thought: Give AI a "financial dictionary")**
+## Workflow
 
-      * **Pain Point:** LLMs cannot directly query structured data or perform specific lookups without a mechanism.
-      * **My Solution:** I developed a **`BuysideSkillTool` (Buy-side Skill Analyzer Tool)**. This tool acts as a bridge connecting the AI's brain to my skill encyclopedia.
-      * **The Link:** When an AI agent needs to identify a skill in a resume, it's instructed to call this tool. The tool then executes my pre-written logic (looking up and enriching information in the skill graph), returning structured results to the AI, ensuring accuracy and depth in skill identification.
+1. ATS sends candidate emails
+2. Script reads inbox
+3. Extracts download links
+4. Downloads CVs
+5. Runs LLM evaluation
+6. Sends alerts for strong candidates
 
-3.  **Precisely Matching Hiring Manager Preferences & Team Synergy (My thought: It's not just about individuals, but team chemistry)**
+---
 
-      * **Pain Point:** Many screening tools only match against a JD, ignoring existing team dynamics and nuanced leadership needs.
-      * **My Solution:** I specifically designed a **`HiringManagerPreferencesAgent` (Hiring Manager Preferences Agent)** and its corresponding task. I explicitly instructed it to:
-          * Go beyond just matching the candidate to the job description, and **deeply analyze how the candidate would fit into and enhance the existing team's skill structure.**
-          * It considers the current team's skill composition, identified skill gaps, and the hiring manager's specific expectations for a new hire.
-      * **The Link:** This is where the project most reflects my logical thinking as a TA, aiming for a match from a **"skill-oriented talent pipeline"** perspective, rather than just isolated individual assessments.
+## Example Output
 
-4.  **Structured Outputs for Clear Communication (My thought: Make AI reports readable and analyzable)**
+- Candidate Score
+- Hire / No Hire / Interview
+- Strengths / Weaknesses
+- Matching analysis
 
-      * **Pain Point:** Free-form text generated by LLMs can be difficult to standardize and process further.
-      * **My Solution:** I used **Pydantic Models** to define the output format for all key reports, such as `SkillReport`, `CompanyMatchReport`, and `HiringManagerPreferencesReport`.
-      * **The Link:** Every task is explicitly told that its output must conform to a specific Pydantic format. This ensures I receive structured, consistent, and easily analyzable reports (e.g., all skill ratings are integers from 1-10, all skill lists are standardized dictionary formats), providing reliable input for the final decision.
+---
 
------
+## Philosophy
 
-## Technical Stack
+> Not trying to replace recruiters.  
+> Trying to eliminate repetitive screening work.
 
-  * **Python:** The core development language.
-  * **CrewAI:** The framework for building collaborative AI agents.
-  * **Langchain-OpenAI:** Used for connecting to OpenAI's Large Language Models (LLMs), currently configured to use `gpt-4o`.
-  * **Pydantic:** For defining data models and validating output formats.
-  * **CrewAI-Tools:** For building custom tools that allow AI agents to interact with external logic (like my custom skill graph).
+---
 
------
+## Future Improvements
 
-## Project Structure (My Learning Journey Reflection)
+- Ranking dashboard
+- ATS integration
+- Multi-role evaluation
+- Auto interview scheduling
 
-In building this prototype, I progressively understood how these modules connect step by step:
+---
 
-  * **LLM Configuration:** This is like selecting the smartest brain for the AI team.
-      * **Syntax Link:** `llm=llm_config` (when defining each `Agent`).
-  * **`BuysideAssetManagementSkillGraph` (OOP - Object-Oriented Programming):** This is my knowledge base built using **OOP** principles. It doesn't just store data; it also contains the logic for finding (`find_skill`) and enriching (`_enrich_skill_data`) that data.
-      * **Syntax Link:** `skill_graph: BuysideAssetManagementSkillGraph = Field(default_factory=BuysideAssetManagementSkillGraph)` (declaring the attribute within the `BuysideSkillTool` class).
-  * **`BuysideSkillTool` (Inheriting `BaseTool`):** This `Tool` acts as the bridge between the AI agents and my custom knowledge base. It inherits from `crewai_tools.BaseTool`, allowing it to be recognized and called by the CrewAI framework.
-      * **Syntax Link:** `tools=[buyside_skill_analyzer_tool]` (when defining the `skill_screening_agent`).
-  * **Pydantic Models (Inheriting `BaseModel`):** These models inherit from `pydantic.BaseModel` and are used to enforce specific output formats for AI tasks, ensuring report consistency and parseability.
-      * **Syntax Link:** `output_pydantic=SkillReport` (when defining each `Task`).
+## Author
 
-I admit that connecting these individual `Class`es, `Model`s, and `BaseTool` concepts, and understanding how they are **instantiated (creating objects)** and **passed as parameters** to `Agent` and `Task` at the Python syntax level, was a key challenge in my learning journey — a true "connecting the dots" experience. However, through this hands-on practice, I am in the process of gaining a clear grasp of these linkages, which is precisely the essence of direct learning.
-
------
-
-## How to Run This Project
-
-1.  **Environment Setup:**
-    ```bash
-    git clone [Your project repo URL]
-    cd [Your project folder]
-    pip install -r requirements.txt # Ensure requirements.txt includes all dependencies
-    # Alternatively, install manually:
-    # pip install crewai langchain-openai pydantic crewai_tools
-    ```
-2.  **API Key Configuration:**
-      * Make sure you have an API Key from OpenAI.
-      * Set it as an environment variable (recommended): `export OPENAI_API_KEY='Your_OpenAI_Key'` (Mac/Linux) or `set OPENAI_API_KEY=Your_OpenAI_Key` (Windows CMD/PowerShell).
-3.  **Run the Project:**
-    ```bash
-    python main.py # Assuming your main script file is main.py
-    ```
-    (Note: The first run might take a bit longer to download LLM dependencies.)
-4.  **View Results:**
-    After the program runs, the final hiring recommendation report will be printed in the terminal and saved to a Markdown file in the `output_reports/` directory.
-
------
-
-## Future Enhancements
-
-* **Richer Skill Graph:** Expand skill classifications, incorporate more granular industry tools and models.
-* **Dynamic Skill Learning:** Explore ways for the LLM, with few-shot examples, to automatically extract and learn new skill keywords from JDs without manual graph updates.
-* **Talent Mapper Agent:** Introduce a specialized agent focused on **talent mapping for passive / low volume but high-stake candidates**. This agent could leverage public data, networking insights, and market trends to proactively identify and engage top-tier talent, offering a strategic advantage beyond reactive application screening.
-* **User Interface:** Develop a simple web interface, perhaps using Streamlit or Gradio, for easier input and result viewing.
-* **Error Handling and Robustness:** Enhance the system's ability to handle unexpected LLM output formats and edge cases.
-
------
+Tom Lee  
+Talent Acquisition | HR Tech Builder
