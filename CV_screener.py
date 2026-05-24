@@ -1,187 +1,274 @@
-import imaplib
-import email
-import re
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 import os
+import re
 import requests
-import zipfile
-from email.header import decode_header
+import dotenv
 from datetime import datetime
+import fitz  # PyMuPDF
+import docx
 
-# ========= CONFIG =========
-IMAP_SERVER = "imap.gmail.com"
-EMAIL_ACCOUNT = os.getenv("EMAIL_ACCOUNT")
-APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
-
-DOWNLOAD_DIR = r"C:\Users\user\Downloads"
-
-DOWNLOADED_ZIPS = []
-SHORTLIST = {}
+# ============================================================
+# ENVIRONMENT VARIABLES & PATH CONFIGURATION
+# ============================================================
+dotenv.load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+BASE_DIR = r"C:\Users\user\Desktop\CV_screener\Storage"
+RAW_MARKDOWN_DIR = os.path.join(BASE_DIR, "raw_markdown")
+DEALBREAKER_OUT_DIR = os.path.join(BASE_DIR, "dealbreakers")
+EVALUATION_DIR = os.path.join(BASE_DIR, "evaluations")
+PROCESSED_FILE = os.path.join(BASE_DIR, "processed_files.txt")
 
-# ========= EMAIL =========
+for directory in [RAW_MARKDOWN_DIR, DEALBREAKER_OUT_DIR, EVALUATION_DIR]:
+    os.makedirs(directory, exist_ok=True)
 
-def decode_mime_words(s):
-    if not s:
-        return ""
+TESTING_PROFILES_DIR = r"C:\Users\user\Desktop\CV_screener\Testing_profiles"
+HIRING_BRIEF_FILE = r"C:\Users\user\Desktop\CV_screener\positions_criteria\Regional_HR_Lead.md"
+DEALBREAKER_FILE = r"C:\Users\user\Desktop\CV_screener\positions_criteria\Dealbreaker.md"
 
-    decoded = decode_header(s)
-    out = ""
+TELEGRAM_REPORT_LIST = []
 
-    for text, enc in decoded:
-        if isinstance(text, bytes):
-            try:
-                out += text.decode(enc or "utf-8", errors="ignore")
-            except:
-                out += text.decode("utf-8", errors="ignore")
-        else:
-            out += text
+# ============================================================
+# STATE MANAGEMENT (Processed files tracking)
+# ============================================================
+def load_processed():
+    if not os.path.exists(PROCESSED_FILE):
+        return set()
+    with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
+        return set(line.strip() for line in f)
 
-    return out
+def mark_processed(filename):
+    with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
+        f.write(filename + "\n")
 
-
-def extract_links_from_email(msg):
-    links = []
-
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_type() in ["text/plain", "text/html"]:
-                try:
-                    body = part.get_payload(decode=True).decode(errors="ignore")
-                    links += re.findall(r'https?://[^\s"<>]+', body)
-                except:
-                    pass
-    else:
-        body = msg.get_payload(decode=True).decode(errors="ignore")
-        links += re.findall(r'https?://[^\s"<>]+', body)
-
-    return [l for l in links if ".zip" in l]
-
-
-def download_zip(url, save_dir):
-    try:
-        filename = url.split("/")[-1].split("?")[0]
-        save_path = os.path.join(save_dir, filename)
-
-        print(f"Downloading: {filename}")
-
-        r = requests.get(url, timeout=60)
-        r.raise_for_status()
-
-        with open(save_path, "wb") as f:
-            f.write(r.content)
-
-        return save_path
-
-    except Exception as e:
-        print("Download failed:", e)
-        return None
-
-
-def unzip_file(zip_path):
-    try:
-        extract_dir = zip_path.replace(".zip", "")
-        os.makedirs(extract_dir, exist_ok=True)
-
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(extract_dir)
-
-        return extract_dir
-
-    except Exception as e:
-        print("Unzip failed:", e)
-        return None
-
-
-def run_pipeline():
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(EMAIL_ACCOUNT, APP_PASSWORD)
-    mail.select("inbox")
-
-    status, messages = mail.search(None, '(UNSEEN SUBJECT "Resume Download")')
-    email_ids = messages[0].split()[-10:]
-
-    for eid in email_ids:
-        status, msg_data = mail.fetch(eid, "(RFC822)")
-        msg = email.message_from_bytes(msg_data[0][1])
-
-        subject = decode_mime_words(msg.get("Subject"))
-        if "Resume Download" not in subject:
-            continue
-
-        links = extract_links_from_email(msg)
-
-        for link in links:
-            zip_path = download_zip(link, DOWNLOAD_DIR)
-
-            if zip_path:
-                DOWNLOADED_ZIPS.append(zip_path)
-                unzip_file(zip_path)
-
-        mail.store(eid, '+FLAGS', '\\Seen')
-
-    mail.logout()
-
-
-# ========= CV PROCESS =========
-
-import fitz
-
-def read_pdf_better(path):
+# ============================================================
+# FILE READERS (PDF / DOCX / TXT)
+# ============================================================
+def read_pdf(path):
     try:
         doc = fitz.open(path)
-        return "".join([p.get_text() for p in doc])
-    except:
+        return "".join(page.get_text() for page in doc)
+    except Exception as e:
+        print(f"❌ PDF read failed: {e}")
         return ""
 
+def read_docx(path):
+    try:
+        doc = docx.Document(path)
+        return "\n".join(p.text for p in doc.paragraphs)
+    except Exception as e:
+        print(f"❌ DOCX read failed: {e}")
+        return ""
 
 def read_cv(path):
-    return read_pdf_better(path) if path.endswith(".pdf") else ""
+    if path.lower().endswith(".pdf"):
+        return read_pdf(path)
+    if path.lower().endswith(".docx"):
+        return read_docx(path)
+    return ""
 
-
-def get_all_files(folder):
-    files = []
-    for root, _, filenames in os.walk(folder):
-        for f in filenames:
-            if f.endswith((".pdf", ".docx")):
-                files.append(os.path.join(root, f))
-    return files
-
-
-def read_skills(path):
+def read_text_file(path):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-
+# ============================================================
+# LLM INTERFACE (Ollama, supports long context and extended timeout)
+# ============================================================
 def ask_llm(prompt):
-    res = requests.post(
-        "http://localhost:11434/api/generate",
-        json={"model": "qwen3.5", "prompt": prompt, "stream": False}
-    )
-    return res.json()["response"]
+    try:
+        res = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "qwen3.6-32k",
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_ctx": 16384,
+                    "temperature": 0.1,
+                    "top_p": 0.9
+                }
+            },
+            timeout=300
+        )
+        return res.json()["response"]
+    except Exception as e:
+        print(f"❌ LLM Request failed: {e}")
+        return ""
 
-
-# ========= KEEP YOUR PROMPT =========
-
-def build_prompt(cv_text, skills_text):
+# ============================================================
+# PROMPT BUILDERS
+# ============================================================
+def build_dealbreaker_prompt(raw_cv, dealbreaker_criteria):
     current_date = datetime.now().strftime("%d %B %Y")
-
     return f"""
-# Task: CV Reconstruction & Professional Evaluation
-...
-Today is {current_date}.
+{dealbreaker_criteria}
+
+today is {current_date}.
+
+==================================================
+RAW CV CONTENT TO EVALUATE:
+==================================================
+{raw_cv}
+
+==================================================
+OUTPUT (STRICTLY FOLLOW THE FORMAT REQ):
+==================================================
+Only read the english content in the CV and evaluate if any of the deal-breaker criteria are met.
 """
 
+def build_evaluation_prompt(raw_cv, hiring_brief):
+    current_date = datetime.now().strftime("%d %B %Y")
+    return f"""
+today is {current_date}.
 
-# ========= TELEGRAM =========
+You are an expert Talent Acquisition specialist. 
+Evaluate this candidate based on the provided Hiring Brief. Determine their final tier into one of the four categories specified.
 
+{hiring_brief}
+
+==================================================
+RAW CV CONTENT:
+==================================================
+{raw_cv}
+
+==================================================
+REQUIRED OUTPUT FORMAT:
+==================================================
+Provide a brief analysis based on the core pillars, and conclude with the precise recommendation header line (e.g., "## Strong Recommend", "## Recommend", "## Borderline", or "## Weak Fit").
+
+Only read the english content in the CV and evaluate based on the hiring brief criteria.
+"""
+
+# ============================================================
+# OUTPUT SAVING & HELPER FUNCTIONS
+# ============================================================
+def save_output(directory, filename, content, suffix=""):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = os.path.splitext(os.path.basename(filename))[0]
+    output_filename = f"{base_name}_{suffix}_{timestamp}.md" if suffix else f"{base_name}_{timestamp}.md"
+    save_path = os.path.join(directory, output_filename)
+    with open(save_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"💾 Saved: {save_path}")
+    return save_path
+
+def print_section(title, content, limit=2000):
+    print("\n" + "=" * 80)
+    print(title)
+    print("=" * 80)
+    if len(content) > limit:
+        print(content[:limit] + "\n... [TRUNCATED OUTPUT] ...")
+    else:
+        print(content)
+    print("=" * 80)
+
+def parse_recommendation(eval_text):
+    eval_upper = eval_text.upper()
+    if "STRONG RECOMMEND" in eval_upper:
+        return "Strong Recommend ⭐"
+    if "RECOMMEND" in eval_upper:
+        return "Recommend ✅"
+    if "BORDERLINE" in eval_upper:
+        return "Borderline ⚠️"
+    if "WEAK FIT" in eval_upper:
+        return "Weak Fit ❌"
+    return "Undetermined"
+
+# ============================================================
+# TELEGRAM NOTIFICATION
+# ============================================================
 def send_telegram(msg):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠ Telegram not configured")
+        return
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
             json={"chat_id": TELEGRAM_CHAT_ID, "text": msg}
         )
+        print("📲 Telegram summary sent successfully.")
     except Exception as e:
-        print("Telegram error:", e)
+        print(f"❌ Telegram failed: {e}")
+
+# ============================================================
+# MAIN EXECUTION FLOW
+# ============================================================
+def run():
+    processed = load_processed()
+
+    if not os.path.exists(TESTING_PROFILES_DIR):
+        print(f"❌ Testing folder path does not exist: {TESTING_PROFILES_DIR}")
+        return
+
+    local_files = [f for f in os.listdir(TESTING_PROFILES_DIR) if f.lower().endswith((".pdf", ".docx"))]
+    print(f"📂 Found {len(local_files)} files in Testing_profiles directory.")
+
+    if not local_files:
+        print("📭 No candidate files found to process.")
+        return
+
+    hiring_brief = read_text_file(HIRING_BRIEF_FILE)
+    dealbreaker_criteria = read_text_file(DEALBREAKER_FILE)
+
+    for filename in local_files:
+        if filename in processed:
+            print(f"\n⏩ Already processed: {filename}")
+            continue
+
+        file_path = os.path.join(TESTING_PROFILES_DIR, filename)
+        print(f"\n🧠 Processing: {filename}")
+
+        # 1. Extract raw CV content
+        raw_markdown = read_cv(file_path)
+        if not raw_markdown.strip():
+            print(f"⚠ Empty text extraction for CV: {filename}")
+            continue
+
+        print_section(f"RAW MARKDOWN: {filename}", raw_markdown)
+        save_output(RAW_MARKDOWN_DIR, filename, raw_markdown, suffix="raw")
+
+        # 2. Deal Breaker screening
+        print("\n🛡 Running Stage 1: Deal-Breaker Screening...")
+        dealbreaker_res = ask_llm(build_dealbreaker_prompt(raw_markdown, dealbreaker_criteria))
+        print_section("DEAL BREAKER EVALUATION RESULT", dealbreaker_res)
+        save_output(DEALBREAKER_OUT_DIR, filename, dealbreaker_res, suffix="dealbreaker")
+
+        dealbreaker_upper = dealbreaker_res.upper()
+        if any(flag in dealbreaker_upper for flag in ["RULED_OUT: YES", "RULED_OUT:YES", "FINAL RECOMMENDATION: REJECT"]):
+            print(f"⛔ Candidate {filename} hit a Deal-Breaker. Ruling out.")
+            save_output(EVALUATION_DIR, filename, f"# Deal Breaker Triggered\n\n{dealbreaker_res}", suffix="rejected")
+            mark_processed(filename)
+            continue
+
+        # 3. Core capability evaluation (passed Deal Breaker)
+        print("\n📋 Running Stage 2: Core Capability Evaluation...")
+        evaluation = ask_llm(build_evaluation_prompt(raw_markdown[:15000], hiring_brief))
+        if not evaluation.strip():
+            print("❌ Stage 2 Core evaluation failed or empty response.")
+            continue
+
+        save_output(EVALUATION_DIR, filename, evaluation, suffix="evaluated")
+        print_section("CORE EVALUATION REPORT", evaluation)
+
+        rec_level = parse_recommendation(evaluation)
+        TELEGRAM_REPORT_LIST.append((filename, rec_level))
+        mark_processed(filename)
+        print(f"✅ Completed entire workflow for: {filename}")
+
+    # Send batch summary
+    if TELEGRAM_REPORT_LIST:
+        report = "📌 Screened Profiles Summary (Passed Deal-Breakers)\n\n"
+        for i, (file, level) in enumerate(TELEGRAM_REPORT_LIST, 1):
+            report += f"{i}. 📄 {file}\n   ↳ Status: {level}\n\n"
+        print("\n" + report)
+        send_telegram(report)
+    else:
+        print("\n📭 No candidates passed the deal-breaker criteria during this batch.")
+        send_telegram("Batch Complete: 0 profiles passed the initial deal-breaker screening.")
+
+if __name__ == "__main__":
+    run()
