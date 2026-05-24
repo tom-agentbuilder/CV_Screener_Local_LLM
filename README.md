@@ -72,7 +72,7 @@ TELEGRAM_CHAT_ID="your_chat_id_here"
 2. Add candidate CV files to `Testing_profiles/`.
 3. Run the script:
 ```bash
-python "Gemini version_Qwen3.6.py"
+python "CV_Screener.py"
 
 ```
 
